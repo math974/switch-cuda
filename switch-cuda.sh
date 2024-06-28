@@ -24,62 +24,57 @@
 # version:  2018.1
 # date:     May 15, 2018
 
-
-set -e
-
-
-# ensure that the script has been sourced rather than just executed
-if [[ "${BASH_SOURCE[0]}" = "${0}" ]]; then
-    echo "Please use 'source' to execute switch-cuda.sh!"
-    exit 1
-fi
+GREEN='\033[0;32m'
+NC='\033[0m' # No Color
 
 INSTALL_FOLDER="/usr/local"  # the location to look for CUDA installations at
 TARGET_VERSION=${1}          # the target CUDA version to switch to (if provided)
+CURRENT_VERSION=$(nvcc --version | sed -n 's/^.*release \([0-9]\+\.[0-9]\+\).*$/\1/p')
 
 # if no version to switch to has been provided, then just print all available CUDA installations
 if [[ -z ${TARGET_VERSION} ]]; then
     echo "The following CUDA installations have been found (in '${INSTALL_FOLDER}'):"
     ls -l "${INSTALL_FOLDER}" | egrep -o "cuda-[0-9]+\\.[0-9]+$" | while read -r line; do
-        echo "* ${line}"
+    if [[ "$(echo ${line} | sed 's/cuda-//')" == "$CURRENT_VERSION" ]]; then
+            echo -e "${GREEN}* ${line}${NC}"
+        else
+            echo "  ${line}"
+        fi
     done
     set +e
-    return
+    exit 0
 # otherwise, check whether there is an installation of the requested CUDA version
 elif [[ ! -d "${INSTALL_FOLDER}/cuda-${TARGET_VERSION}" ]]; then
     echo "No installation of CUDA ${TARGET_VERSION} has been found!"
     set +e
-    return
+    exit 0
 fi
 
 # the path of the installation to use
-cuda_path="${INSTALL_FOLDER}/cuda-${TARGET_VERSION}"
+NEW_CUDA_PATH="${INSTALL_FOLDER}/cuda-${TARGET_VERSION}"
 
-# filter out those CUDA entries from the PATH that are not needed anymore
-path_elements=(${PATH//:/ })
-new_path="${cuda_path}/bin"
-for p in "${path_elements[@]}"; do
-    if [[ ! ${p} =~ ^${INSTALL_FOLDER}/cuda ]]; then
-        new_path="${new_path}:${p}"
-    fi
-done
+FILE_PATH="${HOME}/.bashrc"
 
-# filter out those CUDA entries from the LD_LIBRARY_PATH that are not needed anymore
-ld_path_elements=(${LD_LIBRARY_PATH//:/ })
-new_ld_path="${cuda_path}/lib64:${cuda_path}/extras/CUPTI/lib64"
-for p in "${ld_path_elements[@]}"; do
-    if [[ ! ${p} =~ ^${INSTALL_FOLDER}/cuda ]]; then
-        new_ld_path="${new_ld_path}:${p}"
-    fi
-done
+new_path_line="export PATH=${NEW_CUDA_PATH}/bin\${PATH:+:\${PATH}}"
+new_ld_library_path_line="export LD_LIBRARY_PATH=${NEW_CUDA_PATH}/lib64\${LD_LIBRARY_PATH:+:\${LD_LIBRARY_PATH}}"
 
-# update environment variables
-export CUDA_HOME="${cuda_path}"
-export CUDA_ROOT="${cuda_path}"
-export LD_LIBRARY_PATH="${new_ld_path}"
-export PATH="${new_path}"
+# Replace or add  export ligne PATH
+if grep -q "^export PATH=/usr/local/cuda-[0-9]\+\.[0-9]\+/bin" "$FILE_PATH"; then
+  sed -i "s|^export PATH=/usr/local/cuda-[0-9]\+\.[0-9]\+/bin.*|$new_path_line|" "$FILE_PATH"
+else
+  echo "$new_path_line" >> "$FILE_PATH"
+fi
+
+if grep -q "^export LD_LIBRARY_PATH=/usr/local/cuda-[0-9]\+\.[0-9]\+/lib64" "$FILE_PATH"; then
+  sed -i "s|^export LD_LIBRARY_PATH=/usr/local/cuda-[0-9]\+\.[0-9]\+/lib64.*|$new_ld_library_path_line|" "$FILE_PATH"
+else
+  echo "$new_ld_library_path_line" >> "$FILE_PATH"
+fi
 
 echo "Switched to CUDA ${TARGET_VERSION}."
 
+exec bash
+
 set +e
-return
+exit 0
+
